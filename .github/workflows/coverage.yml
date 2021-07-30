@@ -1,0 +1,62 @@
+name: coverage
+
+on:
+  push:
+    branches-ignore:
+      - 'docker'
+  schedule:
+    - cron: '0 4 * * 0' # Weekly on Sundays at 04:00
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build_type: [Debug]
+        os: [ubuntu-20.04]
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true   
+        fetch-depth: 0
+
+    - name: prepare environment
+      run: |
+        sudo apt update && sudo apt install git lcov libsdl2-dev 
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: configure
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+              -DENABLE_COVERAGE=ON \
+              $GITHUB_WORKSPACE
+
+    - name: build
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.build_type}} -- -j $(nproc)
+
+    - name: lcov prepare
+      working-directory: ${{runner.workspace}}
+      run : |
+        lcov --zerocounters --directory ${{runner.workspace}}/build
+        lcov --capture --initial --directory . --output-file cov_base.info
+
+    - name: run tests
+      working-directory: ${{runner.workspace}}/build
+      run: ctest ${{matrix.build_type}}
+
+    - name: lcov creation
+      working-directory: ${{runner.workspace}}
+      run : |
+        lcov --capture --directory . --output-file cov.info
+        lcov --add-tracefile ./cov_base.info --add-tracefile ./cov.info --output-file cov_total.info
+        lcov --remove ./cov_total.info '/usr/include/*' '/usr/lib/*' '*/extern/*' '*/tests/*' '*/playground/*' -o cov_filter.info
+
+    - name: send to coveralls
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path-to-lcov: ${{runner.workspace}}/cov_filter.info
+

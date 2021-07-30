@@ -1,0 +1,54 @@
+name: linux
+
+on:
+  push:
+    branches-ignore:
+      - 'docker'
+  schedule:
+    - cron: '0 4 * * 0' # Weekly on Sundays at 04:00
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        cxx: [g++-10, clang++-11]
+        build_type: [Debug, Release]
+        std: [17, 20]
+        os: [ubuntu-20.04]
+        include:
+          - cxx: g++-10
+            install: sudo apt update && sudo apt install git libsdl2-dev 
+          - cxx: clang++-11
+            cxxflags: -stdlib=libc++
+            install: sudo apt update && sudo apt install git libc++-11-dev libc++abi-11-dev libsdl2-dev 
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v2
+      with:
+        submodules: true   
+        fetch-depth: 0
+
+    - name: prepare environment
+      run: |
+        ${{matrix.install}}
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: configure
+      working-directory: ${{runner.workspace}}/build
+      env:
+        CXX: ${{matrix.cxx}}
+        CXXFLAGS: ${{matrix.cxxflags}}
+      run: |
+        cmake -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+              -DCMAKE_CXX_STANDARD=${{matrix.std}} \
+              $GITHUB_WORKSPACE
+
+    - name: build
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.build_type}} -- -j $(nproc)
+
+    - name: run unittests
+      working-directory: ${{runner.workspace}}/build
+      run: ctest ${{matrix.build_type}}

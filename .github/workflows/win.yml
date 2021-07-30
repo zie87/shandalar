@@ -1,0 +1,70 @@
+name: windows
+
+on:
+  push:
+    branches-ignore:
+      - 'docker'
+  schedule:
+    - cron: '0 4 * * 0' # Weekly on Sundays at 04:00
+
+jobs:       
+  build:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        arch: [x86, x64]
+        build_type: [Debug, Release]
+        include:
+          - arch: x86
+            platform: Win32
+            triplet: x86-windows
+          - arch: x64
+            platform: x64
+            triplet: x64-windows
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true   
+        fetch-depth: 0
+  
+    - uses: friendlyanon/setup-vcpkg@v1
+
+    - name: init
+      id: init
+      shell: bash
+      run: |
+        echo "${{ runner.os }}" > env.lock
+          
+        .github/tools/win/vs_env.bat ${{matrix.arch}}
+        source env.sh
+        cl >> env.lock 2>&1
+
+        cmake --version >> env.lock 2>&1
+        echo "==== env.lock ===="
+        cat env.lock
+
+    - name: vcpkg
+      shell: bash
+      run: |
+        source env.sh
+        $VCPKG_ROOT/vcpkg install sdl2 --triplet ${{ matrix.triplet }}
+
+    - name: Configure
+      shell: bash
+      run: |
+        source env.sh
+        cmake -S . -B build -G "Visual Studio 16 2019" -A ${{ matrix.platform }} -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake
+    
+    - name: Build
+      shell: bash
+      run: |
+        cmake --build build --config ${{ matrix.build_type }}
+    
+    - name: Tests
+      shell: bash
+      run: |
+        cd build
+        ctest ${{ matrix.build_type }} --rerun-failed --output-on-failure
+        cd ..
